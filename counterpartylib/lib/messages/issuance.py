@@ -99,15 +99,8 @@ def validate (db, source, destination, asset, quantity, divisible, callable_, ca
 
     # Callable, or not.
     if not callable_:
-        if block_index >= 312500 or config.TESTNET or config.REGTEST: # Protocol change.
-            call_date = 0
-            call_price = 0.0
-        elif block_index >= 310000:                 # Protocol change.
-            if call_date:
-                problems.append('call date for non‐callable asset')
-            if call_price:
-                problems.append('call price for non‐callable asset')
-
+        call_date = 0
+        call_price = 0.0
     # Valid re-issuance?
     cursor = db.cursor()
     cursor.execute('''SELECT * FROM issuances \
@@ -136,7 +129,7 @@ def validate (db, source, destination, asset, quantity, divisible, callable_, ca
             problems.append('cannot change divisibility')
         if bool(last_issuance['callable']) != bool(callable_):
             problems.append('cannot change callability')
-        if last_issuance['call_date'] > call_date and (call_date != 0 or (block_index < 312500 and not config.TESTNET or config.REGTEST)):
+        if last_issuance['call_date'] > call_date and (call_date != 0 or (block_index < 0 and not config.TESTNET or config.REGTEST)):
             problems.append('cannot advance call date')
         if last_issuance['call_price'] > call_price:
             problems.append('cannot reduce call price')
@@ -180,31 +173,17 @@ def validate (db, source, destination, asset, quantity, divisible, callable_, ca
 
 
     # Check for existence of fee funds.
-    if quantity or (block_index >= 315000 or config.TESTNET or config.REGTEST):   # Protocol change.
-        if not reissuance or (block_index < 310000 and not config.TESTNET or config.REGTEST):  # Pay fee only upon first issuance. (Protocol change.)
-            cursor = db.cursor()
-            cursor.execute('''SELECT * FROM balances \
-                              WHERE (address = ? AND asset = ?)''', (source, config.XCP))
-            balances = cursor.fetchall()
-            cursor.close()
-            if util.enabled('numeric_asset_names'):  # Protocol change.
-                if subasset_longname is not None and util.enabled('subassets'): # Protocol change.
-                    # subasset issuance is 0.25
-                    fee = int(0.25 * config.UNIT)
-                elif len(asset) >= 13:
-                    fee = 0
-                else:
-                    fee = int(0.5 * config.UNIT)
-            elif block_index >= 291700 or config.TESTNET or config.REGTEST:     # Protocol change.
-                fee = int(0.5 * config.UNIT)
-            elif block_index >= 286000 or config.TESTNET or config.REGTEST:   # Protocol change.
-                fee = 5 * config.UNIT
-            elif block_index > 281236 or config.TESTNET or config.REGTEST:    # Protocol change.
-                fee = 5
-            if fee and (not balances or balances[0]['quantity'] < fee):
-                problems.append('insufficient funds')
+    if not reissuance:
+        cursor = db.cursor()
+        cursor.execute('''SELECT * FROM balances \
+                          WHERE (address = ? AND asset = ?)''', (source, config.XCP))
+        balances = cursor.fetchall()
+        cursor.close()
+        fee = 88 * config.UNIT
+        if fee and (not balances or balances[0]['quantity'] < fee):
+            problems.append('insufficient funds')
 
-    if not (block_index >= 317500 or config.TESTNET or config.REGTEST):  # Protocol change.
+    if not (block_index >= 0 or config.TESTNET or config.REGTEST):  # Protocol change.
         if len(description) > 42:
             problems.append('description too long')
 
@@ -320,7 +299,7 @@ def parse (db, tx, message, message_type_id):
                 description = description.decode('utf-8')
             except UnicodeDecodeError:
                 description = ''
-        elif (tx['block_index'] > 283271 or config.TESTNET or config.REGTEST) and len(message) >= LENGTH_2: # Protocol change.
+        elif (tx['block_index'] > 0 or config.TESTNET or config.REGTEST) and len(message) >= LENGTH_2: # Protocol change.
             if len(message) - LENGTH_2 <= 42:
                 curr_format = FORMAT_2 + '{}p'.format(len(message) - LENGTH_2)
             else:
