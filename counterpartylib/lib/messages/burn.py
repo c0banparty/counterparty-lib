@@ -60,8 +60,8 @@ def validate(db, source, destination, quantity, block_index, overburn=False, che
 
     if checkpossession:
         ryo_balance = get_ryo_balance(source) * config.UNIT
-        if quantity > ryo_balance - 1:  # maybe fee is under 1 RYO
-            problems.append('insufficient funds. (Burn quantity = {}) > (Possassion RYO = {} - 1)'.format(quantity, ryo_balance))
+        if quantity > ryo_balance - 0.1:  # maybe fee is under 0.1 RYO. TODO use estimatesmartfee after upgrading to c0band v0.17
+            problems.append('insufficient funds. (Burn quantity = {}) > (Possassion RYO = {} - 0.1)'.format(quantity, ryo_balance))
 
     return problems
 
