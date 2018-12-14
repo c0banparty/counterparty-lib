@@ -111,8 +111,7 @@ DEFAULT_MULTISIG_DUST_SIZE = 78000        # <https://bitcointalk.org/index.php?t
 DEFAULT_OP_RETURN_VALUE = 0
 DEFAULT_FEE_PER_KB = 50000               # sane/low default, also used as minimum when estimated fee is used
 ESTIMATE_FEE_PER_KB = False               # when True will use `estimatefee` from bitcoind instead of DEFAULT_FEE_PER_KB
-ESTIMATE_FEE_CONF_TARGET = 3
-ESTIMATE_FEE_MODE = 'CONSERVATIVE'
+ESTIMATE_FEE_NBLOCKS = 3
 
 # UI defaults
 DEFAULT_FEE_FRACTION_REQUIRED = .009   # 0.90%

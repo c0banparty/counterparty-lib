@@ -159,17 +159,22 @@ def getrawtransaction(tx_hash, verbose=False, skip_missing=False):
 def getrawmempool():
     return rpc('getrawmempool', [])
 
-def fee_per_kb(conf_target, mode):
+def fee_per_kb(nblocks):
     """
-    :param conf_target:
-    :param mode:
+    :param nblocks:
     :return: fee_per_kb in satoshis, or None when unable to determine
     """
 
-    feeperkb = rpc('estimatesmartfee', [conf_target], mode)
+    # we need to loop because sometimes bitcoind can't estimate a certain nblocks
+    retry = 0
+    feeperkb = -1
+    while feeperkb == -1:
+        feeperkb = rpc('estimatefee', [nblocks])
+        nblocks += 1
+        retry += 1
 
-    if feeperkb == 'Insufficient data or no feerate found':
-        return None
+        if retry > 10:
+            return None
 
     return int(feeperkb * config.UNIT)
 
