@@ -39,7 +39,7 @@ def get_ryo_balance(address):
         balance += utxo['amount']
     return balance
 
-def validate (db, source, destination, quantity, block_index, overburn=False, checkpossession=True):
+def validate(db, source, destination, quantity, block_index, overburn=False, checkpossession=True):
     problems = []
 
     # Check destination address.
@@ -79,7 +79,7 @@ def parse (db, tx, MAINNET_BURNS, message=None):
     status = 'valid'
 
     if status == 'valid':
-        problems = validate(db, tx['source'], tx['destination'], tx['btc_amount'], tx['block_index'], overburn=False)
+        problems = validate(db, tx['source'], tx['destination'], tx['btc_amount'], tx['block_index'], overburn=False, checkpossession=False)
         if problems: status = 'invalid: ' + '; '.join(problems)
 
         if tx['btc_amount'] != None:
