@@ -188,6 +188,8 @@ def check_change(protocol_change, change_name):
             warnings.warn(explanation)
 
 def software_version():
+    # TODO: implements following
+    return
     if config.FORCE:
         return
     logger.debug('Checking version.')
