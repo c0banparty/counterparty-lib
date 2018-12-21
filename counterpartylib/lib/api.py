@@ -24,6 +24,7 @@ import struct
 import apsw
 import flask
 from flask_httpauth import HTTPBasicAuth
+from flask_cors import CORS
 import jsonrpc
 from jsonrpc import dispatcher
 from jsonrpc.exceptions import JSONRPCDispatchException
@@ -455,6 +456,7 @@ class APIServer(threading.Thread):
         logger.info('Starting API Server.')
         self.db = self.db or database.get_connection(read_only=True, integrity_check=False)
         app = flask.Flask(__name__)
+        CORS(app)
         auth = HTTPBasicAuth()
 
         @auth.get_password
