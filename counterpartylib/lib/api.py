@@ -61,7 +61,7 @@ API_TABLES = ['assets', 'balances', 'credits', 'debits', 'bets', 'bet_matches',
               'bet_expirations', 'order_expirations', 'bet_match_expirations',
               'order_match_expirations', 'bet_match_resolutions', 'rps',
               'rpsresolves', 'rps_matches', 'rps_expirations', 'rps_match_expirations',
-              'mempool']
+              'mempool', 'transactions']
 
 API_TRANSACTIONS = ['bet', 'broadcast', 'btcpay', 'burn', 'cancel', 'destroy',
                     'dividend', 'issuance', 'order', 'send',
@@ -207,12 +207,19 @@ def get_rows(db, table, filters=None, filterop='AND', order_by=None, order_dir=N
     statement = '''SELECT * FROM {}'''.format(table)
     # WHERE
     bindings = []
+    remove_words = ['_dc']
     conditions = []
     for filter_ in filters:
         case_sensitive = False if 'case_sensitive' not in filter_ else filter_['case_sensitive']
         if filter_['op'] == 'LIKE' and case_sensitive == False:
             filter_['field'] = '''UPPER({})'''.format(filter_['field'])
             filter_['value'] = filter_['value'].upper()
+        is_deleted = False
+        for word in remove_words:
+            if word == filter_['field']:
+                is_deleted = True
+        if is_deleted:
+            continue
         marker = value_to_marker(filter_['value'])
         conditions.append('''{} {} {}'''.format(filter_['field'], filter_['op'], marker))
         if isinstance(filter_['value'], list):
@@ -775,12 +782,55 @@ class APIServer(threading.Thread):
             return holders
 
         @dispatcher.add_method
+        def get_transaction(tx_hash):
+
+            def _exec_sql(cursor, table, tx_hash):
+                sql = "SELECT * FROM {} WHERE tx_hash IN ('{}') ORDER BY tx_index ASC LIMIT 1"
+                # print(sql.format(table, tx_hash))
+                cursor.execute(sql.format(table, tx_hash))
+                result = cursor.fetchall()
+                if len(result) > 0:
+                    return result[0]
+                return {}
+
+            cursor = self.db.cursor()
+            transaction = _exec_sql(cursor, 'transactions', tx_hash)
+            if 'tx_hash' in transaction:
+                # tx
+                if 'data' in transaction:
+                    del transaction['data']
+                TRANSACTION_TABLES = ('bets', 'broadcasts', 'btcpays', 'burns',
+                    'cancels', 'destructions', 'dividends', 'issuances',
+                    'orders', 'rps', 'rpsresolves', 'sends')
+                for table in TRANSACTION_TABLES:
+                    result = _exec_sql(cursor, table, tx_hash)
+                    if 'tx_hash' in result:
+                        transaction['type'] = table
+                        transaction['data'] = result
+                        break
+
+            cursor.close()
+            return transaction
+
+        @dispatcher.add_method
         def search_raw_transactions(address, unconfirmed=True):
             return backend.search_raw_transactions(address, unconfirmed=unconfirmed)
 
         @dispatcher.add_method
+        def get_ryo_transaction(txid):
+            return backend.get_ryo_transaction(txid)
+
+        @dispatcher.add_method
+        def search_ryo_transactions(address):
+            return backend.search_ryo_transactions(address)
+
+        @dispatcher.add_method
         def get_unspent_txouts(address, unconfirmed=False, unspent_tx_hash=None):
             return backend.get_unspent_txouts(address, unconfirmed=unconfirmed, unspent_tx_hash=unspent_tx_hash)
+
+        @dispatcher.add_method
+        def gettransaction(tx_hash):
+            return backend.gettransaction(tx_hash)
 
         @dispatcher.add_method
         def getrawtransaction(tx_hash, verbose=False, skip_missing=False):
