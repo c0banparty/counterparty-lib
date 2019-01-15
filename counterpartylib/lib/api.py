@@ -872,6 +872,16 @@ class APIServer(threading.Thread):
                 response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
                 response.headers['Access-Control-Allow-Headers'] = 'DNT,X-Mx-ReqToken,Keep-Alive,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Authorization'
 
+        @dispatcher.add_method
+        def get_address_balances(address):
+            cursor = self.db.cursor()
+            values = []
+            sql = "select a.asset, b.asset_longname, a.quantity from balances as a left join assets as b on a.asset = b.asset_name where address = '{}'".format(address)
+            for row in cursor.execute(sql):
+                values.append({'asset': row['asset_longname'] if 'A' == row['asset'][0] else row['asset'], 'quantity': row['quantity']})
+            cursor.close()
+            return values
+
         @app.route('/healthcheck', methods=['GET'])
         def handle_health_check():
             msg, code = 'OK', 200
