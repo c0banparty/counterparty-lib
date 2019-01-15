@@ -247,7 +247,7 @@ def validate (db, source, feed_address, bet_type, deadline, wager_quantity,
     elif not broadcasts[-1]['text']:
         problems.append('feed is locked')
     elif broadcasts[-1]['timestamp'] >= deadline:
-        problems.append('deadline in that feed’s past')
+        problems.append('deadline in that feed’s past. broadcasts {} >= deadline {}'.format(broadcasts[-1]['timestamp'], deadline))
 
     if not bet_type in (0, 1, 2, 3):
         problems.append('unknown bet type')
