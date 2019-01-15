@@ -872,6 +872,15 @@ class APIServer(threading.Thread):
                 response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
                 response.headers['Access-Control-Allow-Headers'] = 'DNT,X-Mx-ReqToken,Keep-Alive,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Authorization'
 
+        @app.route('/healthcheck', methods=['GET'])
+        def handle_health_check():
+            msg, code = 'OK', 200
+            try:
+                check_database_state(self.db, backend.getblockcount())
+            except DatabaseError as error:
+                msg, code = 'NG', 503
+                logging.warning("Health check is NG. {}".format(str(error)))
+            return flask.Response(msg, code, mimetype='text/plain')
         @app.route('/', defaults={'args_path': ''}, methods=['GET', 'POST', 'OPTIONS'])
         @app.route('/<path:args_path>',  methods=['GET', 'POST', 'OPTIONS'])
         # Only require authentication if RPC_PASSWORD is set.
