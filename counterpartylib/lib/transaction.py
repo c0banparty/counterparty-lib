@@ -490,7 +490,7 @@ def construct (db, tx_info, encoding='auto',
         desired_input_count = len(data_array) * 2
 
     for coin in use_inputs:
-        logger.debug('New input: {}'.format(print_coin(coin)))
+        logger.info('New input: {}'.format(print_coin(coin)))
         inputs.append(coin)
         btc_in += coin['value']
 
@@ -507,7 +507,8 @@ def construct (db, tx_info, encoding='auto',
         # Check if good.
         btc_out = destination_btc_out + data_btc_out
         change_quantity = btc_in - (btc_out + final_fee)
-        logger.debug('Size: {} Fee: {:.8f} Change quantity: {:.8f} BTC'.format(size, final_fee / config.UNIT, change_quantity / config.UNIT))
+        logger.info('Size: {} Fee: {:.8f} Change quantity: {:.8f} BTC. Regular Dust Size: {:.8f}'.format(
+            size, final_fee / config.UNIT, change_quantity / config.UNIT, regular_dust_size / config.UNIT))
         # If change is necessary, must not be a dust output.
         if change_quantity == 0 or change_quantity >= regular_dust_size:
             sufficient_funds = True
