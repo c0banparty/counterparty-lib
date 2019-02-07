@@ -876,9 +876,19 @@ class APIServer(threading.Thread):
         def get_address_balances(address):
             cursor = self.db.cursor()
             values = []
-            sql = "select a.asset, b.asset_longname, a.quantity from balances as a left join assets as b on a.asset = b.asset_name where address = '{}'".format(address)
+            sql = """
+                select distinct a.asset, b.asset_longname, a.quantity, c.divisible
+                from balances as a
+                left join assets as b on a.asset = b.asset_name
+                left join issuances as c on a.asset = c.asset
+                where address = '{}'
+            """.format(address)
             for row in cursor.execute(sql):
-                values.append({'asset': row['asset_longname'] if 'A' == row['asset'][0] else row['asset'], 'quantity': row['quantity']})
+                values.append({
+                    'asset': row['asset_longname'] if 'A' == row['asset'][0] else row['asset'],
+                    'quantity': row['quantity'],
+                    'divisible': row['divisible']
+                })
             cursor.close()
             return values
 
