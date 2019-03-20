@@ -7,7 +7,8 @@ from counterpartylib.lib import exceptions
 
 ID = send1.ID
 
-def initialise (db):
+
+def initialise(db):
     cursor = db.cursor()
     cursor.execute('''CREATE TABLE IF NOT EXISTS sends(
                       tx_index INTEGER PRIMARY KEY,
@@ -35,7 +36,8 @@ def initialise (db):
 
     # Adds a memo to sends
     #   SQLite can’t do `ALTER TABLE IF COLUMN NOT EXISTS`.
-    columns = [column['name'] for column in cursor.execute('''PRAGMA table_info(sends)''')]
+    columns = [column['name']
+               for column in cursor.execute('''PRAGMA table_info(sends)''')]
     if 'memo' not in columns:
         cursor.execute('''ALTER TABLE sends ADD COLUMN memo BLOB''')
 
@@ -43,13 +45,16 @@ def initialise (db):
                       memo_idx ON sends (memo)
                    ''')
 
+
 def unpack(db, message, block_index):
     return send1.unpack(db, message, block_index)
 
-def validate (db, source, destination, asset, quantity, block_index):
+
+def validate(db, source, destination, asset, quantity, block_index):
     return send1.validate(db, source, destination, asset, quantity, block_index)
 
-def compose (db, source, destination, asset, quantity, memo=None, memo_is_hex=False, use_enhanced_send=None):
+
+def compose(db, source, destination, asset, quantity, memo=None, memo_is_hex=False, use_enhanced_send=None):
     # special case - enhanced_send replaces send by default when it is enabled
     #   but it can be explicitly disabled with an API parameter
     if util.enabled('enhanced_sends'):
@@ -58,12 +63,11 @@ def compose (db, source, destination, asset, quantity, memo=None, memo_is_hex=Fa
     elif memo is not None or use_enhanced_send == True:
         raise exceptions.ComposeError('enhanced sends are not enabled')
 
-
     return send1.compose(db, source, destination, asset, quantity)
 
-def parse (db, tx, message):    # TODO: *args
+
+def parse(db, tx, message):    # TODO: *args
     return send1.parse(db, tx, message)
 
 
 # vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4
-

@@ -28,6 +28,7 @@ from counterpartylib.lib import util
 from counterpartylib.lib import check
 from counterpartylib.lib import script
 from counterpartylib.lib import backend
+from counterpartylib.lib import levy
 from counterpartylib.lib import log
 from counterpartylib.lib import database
 from counterpartylib.lib import message_type
@@ -90,7 +91,7 @@ def parse_tx(db, tx):
                 message = None
 
             # Protocol change.
-            rps_enabled = tx['block_index'] >= 308500 or config.TESTNET or config.REGTEST
+            rps_enabled = True
 
             if message_type_id == send.ID:
                 send.parse(db, tx, message)
@@ -100,9 +101,9 @@ def parse_tx(db, tx):
                 order.parse(db, tx, message)
             elif message_type_id == btcpay.ID:
                 btcpay.parse(db, tx, message)
-            elif message_type_id == issuance.ID:
+            elif message_type_id == issuance.ID or message_type_id == issuance.ID_LEVY:
                 issuance.parse(db, tx, message, message_type_id)
-            elif message_type_id == issuance.SUBASSET_ID and util.enabled('subassets', block_index=tx['block_index']):
+            elif (message_type_id == issuance.SUBASSET_ID or message_type_id == issuance.SUBASSET_ID_LEVY) and util.enabled('subassets', block_index=tx['block_index']):
                 issuance.parse(db, tx, message, message_type_id)
             elif message_type_id == broadcast.ID:
                 broadcast.parse(db, tx, message)
@@ -124,7 +125,7 @@ def parse_tx(db, tx):
                                            WHERE tx_hash=?''',
                                         (False, tx['tx_hash']))
                 if tx['block_index'] != config.MEMPOOL_BLOCK_INDEX:
-                    logger.info('Unsupported transaction: hash {}; data {}'.format(tx['tx_hash'], tx['data']))
+                    logger.info('Unsupported transaction: message_type_id = {}; hash {}; data {}'.format(message_type_id, tx['tx_hash'], tx['data']))
                 cursor.close()
                 return False
 
@@ -134,6 +135,7 @@ def parse_tx(db, tx):
 
             return True
     except Exception as e:
+        import traceback; print(traceback.format_exc())
         raise exceptions.ParseTransactionError("%s" % e)
     finally:
         cursor.close()
@@ -443,6 +445,17 @@ def initialise(db):
                       category TEXT,
                       bindings TEXT,
                       timestamp INTEGER)
+                  ''')
+
+    # Levy
+    cursor.execute('''DROP TABLE IF EXISTS levies''')
+    cursor.execute('''CREATE TABLE levies(
+                      tx_hash TEXT UNIQUE,
+                      source TEXT,
+                      destination TEXT,
+                      levy_type INTEGER,
+                      levy_asset TEXT,
+                      levy_number INTEGER)
                   ''')
 
     cursor.close()

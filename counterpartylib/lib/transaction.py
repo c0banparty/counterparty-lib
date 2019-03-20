@@ -365,7 +365,7 @@ def construct (db, tx_info, encoding='auto',
         if value == None:
             value = dust_size
         elif value < dust_size:
-            raise exceptions.TransactionError('Destination output is dust.')
+            raise exceptions.TransactionError("Destination output is dust. value {} < dust_size {}".format(value, dust_size))
 
         # Address.
         script.validate(address)

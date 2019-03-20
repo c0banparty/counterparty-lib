@@ -44,7 +44,7 @@ def exectracer(cursor, sql, bindings):
 
     skip_tables = [
         'blocks', 'transactions',
-        'balances', 'messages', 'mempool', 'assets'
+        'balances', 'messages', 'mempool', 'assets', 'levies'
     ]
     skip_tables_block_messages = copy.copy(skip_tables)
     if command == 'update':

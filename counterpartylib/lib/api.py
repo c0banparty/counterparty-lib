@@ -1,5 +1,41 @@
 #! /usr/bin/python3
 
+from counterpartylib.lib.messages import rpsresolve
+from counterpartylib.lib.messages import rps
+from counterpartylib.lib.messages import cancel
+from counterpartylib.lib.messages import destroy
+from counterpartylib.lib.messages import burn
+from counterpartylib.lib.messages import dividend
+from counterpartylib.lib.messages import bet
+from counterpartylib.lib.messages import broadcast
+from counterpartylib.lib.messages import issuance
+from counterpartylib.lib.messages import btcpay
+from counterpartylib.lib.messages import order
+from counterpartylib.lib.messages.versions import enhanced_send
+from counterpartylib.lib.messages import send
+from counterpartylib.lib import message_type
+from counterpartylib.lib import script
+from counterpartylib.lib import blocks
+from counterpartylib.lib import transaction
+from counterpartylib.lib import database
+from counterpartylib.lib import backend
+from counterpartylib.lib import check
+from counterpartylib.lib import util
+from counterpartylib.lib import exceptions
+from counterpartylib.lib import config
+from counterpartylib.lib import levy
+from xmltodict import unparse as serialize_to_xml
+import inspect
+from jsonrpc.exceptions import JSONRPCDispatchException
+from jsonrpc import dispatcher
+import jsonrpc
+from flask_cors import CORS
+from flask_httpauth import HTTPBasicAuth
+import flask
+import apsw
+import struct
+import binascii
+from logging import handlers as logging_handlers
 """
 The database connections are read‐only, so SQL injection attacks can’t be a
 problem.
@@ -16,44 +52,8 @@ import requests
 import collections
 import logging
 logger = logging.getLogger(__name__)
-from logging import handlers as logging_handlers
 D = decimal.Decimal
-import binascii
 
-import struct
-import apsw
-import flask
-from flask_httpauth import HTTPBasicAuth
-from flask_cors import CORS
-import jsonrpc
-from jsonrpc import dispatcher
-from jsonrpc.exceptions import JSONRPCDispatchException
-import inspect
-from xmltodict import unparse as serialize_to_xml
-
-from counterpartylib.lib import config
-from counterpartylib.lib import exceptions
-from counterpartylib.lib import util
-from counterpartylib.lib import check
-from counterpartylib.lib import backend
-from counterpartylib.lib import database
-from counterpartylib.lib import transaction
-from counterpartylib.lib import blocks
-from counterpartylib.lib import script
-from counterpartylib.lib import message_type
-from counterpartylib.lib.messages import send
-from counterpartylib.lib.messages.versions import enhanced_send
-from counterpartylib.lib.messages import order
-from counterpartylib.lib.messages import btcpay
-from counterpartylib.lib.messages import issuance
-from counterpartylib.lib.messages import broadcast
-from counterpartylib.lib.messages import bet
-from counterpartylib.lib.messages import dividend
-from counterpartylib.lib.messages import burn
-from counterpartylib.lib.messages import destroy
-from counterpartylib.lib.messages import cancel
-from counterpartylib.lib.messages import rps
-from counterpartylib.lib.messages import rpsresolve
 
 API_TABLES = ['assets', 'balances', 'credits', 'debits', 'bets', 'bet_matches',
               'broadcasts', 'btcpays', 'burns', 'cancels', 'destructions',
@@ -73,12 +73,15 @@ COMMONS_ARGS = ['encoding', 'fee_per_kb', 'regular_dust_size',
                 'estimate_fee_per_kb', 'estimate_fee_per_kb_conf_target', 'estimate_fee_per_kb_mode',
                 'unspent_tx_hash', 'custom_inputs', 'dust_return_pubkey', 'disable_utxo_locks', 'extended_tx_info']
 
-API_MAX_LOG_SIZE = 10 * 1024 * 1024 #max log size of 20 MB before rotation (make configurable later)
+# max log size of 20 MB before rotation (make configurable later)
+API_MAX_LOG_SIZE = 10 * 1024 * 1024
 API_MAX_LOG_COUNT = 10
-JSON_RPC_ERROR_API_COMPOSE = -32001 #code to use for error composing transaction result
+# code to use for error composing transaction result
+JSON_RPC_ERROR_API_COMPOSE = -32001
 
-current_api_status_code = None #is updated by the APIStatusPoller
-current_api_status_response_json = None #is updated by the APIStatusPoller
+current_api_status_code = None  # is updated by the APIStatusPoller
+current_api_status_response_json = None  # is updated by the APIStatusPoller
+
 
 class APIError(Exception):
     pass
@@ -86,28 +89,39 @@ class APIError(Exception):
 
 class BackendError(Exception):
     pass
+
+
 def check_backend_state():
-    """Checks blocktime of last block to see if {} Core is running behind.""".format(config.BTC_NAME)
+    """Checks blocktime of last block to see if {} Core is running behind.""".format(
+        config.BTC_NAME)
     block_count = backend.getblockcount()
     block_hash = backend.getblockhash(block_count)
     cblock = backend.getblock(block_hash)
-    time_behind = time.time() - cblock.nTime   # TODO: Block times are not very reliable.
+    # TODO: Block times are not very reliable.
+    time_behind = time.time() - cblock.nTime
     if time_behind > 60 * 60 * 2:   # Two hours.
-        raise BackendError('Bitcoind is running about {} hours behind.'.format(round(time_behind / 3600)))
+        raise BackendError('Bitcoind is running about {} hours behind.'.format(
+            round(time_behind / 3600)))
 
     # check backend index
     blocks_behind = backend.getindexblocksbehind()
     if blocks_behind > 5:
-        raise BackendError('Indexd is running {} blocks behind.'.format(blocks_behind))
+        raise BackendError(
+            'Indexd is running {} blocks behind.'.format(blocks_behind))
 
     logger.debug('Backend state check passed.')
 
+
 class DatabaseError(Exception):
     pass
+
+
 def check_database_state(db, blockcount):
-    """Checks {} database to see if is caught up with backend.""".format(config.XCP_NAME)
+    """Checks {} database to see if is caught up with backend.""".format(
+        config.XCP_NAME)
     if util.CURRENT_BLOCK_INDEX + 1 < blockcount:
-        raise DatabaseError('{} database is behind backend.'.format(config.XCP_NAME))
+        raise DatabaseError(
+            '{} database is behind backend.'.format(config.XCP_NAME))
     logger.debug('Database state check passed.')
     return
 
@@ -133,8 +147,9 @@ def db_query(db, statement, bindings=(), callback=None, **callback_args):
     cursor.close()
     return results
 
+
 def get_rows(db, table, filters=None, filterop='AND', order_by=None, order_dir=None, start_block=None, end_block=None,
-              status=None, limit=1000, offset=0, show_expired=True):
+             status=None, limit=1000, offset=0, show_expired=True):
     """SELECT * FROM wrapper. Filters results based on a filter data structure (as used by the API)."""
 
     if filters == None:
@@ -157,7 +172,8 @@ def get_rows(db, table, filters=None, filterop='AND', order_by=None, order_dir=N
     if not isinstance(limit, int):
         raise APIError('Invalid limit')
     elif config.API_LIMIT_ROWS != 0 and limit > config.API_LIMIT_ROWS:
-        raise APIError('Limit should be lower or equal to %i' % config.API_LIMIT_ROWS)
+        raise APIError('Limit should be lower or equal to %i' %
+                       config.API_LIMIT_ROWS)
     elif config.API_LIMIT_ROWS != 0 and limit == 0:
         raise APIError('Limit should be greater than 0')
     if not isinstance(offset, int):
@@ -166,8 +182,8 @@ def get_rows(db, table, filters=None, filterop='AND', order_by=None, order_dir=N
     if order_by and not re.compile('^[a-z0-9_]+$').match(order_by):
         raise APIError('Invalid order_by, must be a field name')
 
-    if isinstance(filters, dict): #single filter entry, convert to a one entry list
-        filters = [filters,]
+    if isinstance(filters, dict):  # single filter entry, convert to a one entry list
+        filters = [filters, ]
     elif not isinstance(filters, list):
         filters = []
 
@@ -175,7 +191,8 @@ def get_rows(db, table, filters=None, filterop='AND', order_by=None, order_dir=N
     new_filters = []
     for filter_ in filters:
         if type(filter_) in (list, tuple) and len(filter_) in [3, 4]:
-            new_filter = {'field': filter_[0], 'op': filter_[1], 'value':  filter_[2]}
+            new_filter = {'field': filter_[
+                0], 'op': filter_[1], 'value':  filter_[2]}
             if len(filter_) == 4:
                 new_filter['case_sensitive'] = filter_[3]
             new_filters.append(new_filter)
@@ -187,15 +204,19 @@ def get_rows(db, table, filters=None, filterop='AND', order_by=None, order_dir=N
 
     # validate filter(s)
     for filter_ in filters:
-        for field in ['field', 'op', 'value']: #should have all fields
+        for field in ['field', 'op', 'value']:  # should have all fields
             if field not in filter_:
-                raise APIError("A specified filter is missing the '%s' field" % field)
+                raise APIError(
+                    "A specified filter is missing the '%s' field" % field)
         if not isinstance(filter_['value'], (str, int, float, list)):
-            raise APIError("Invalid value for the field '%s'" % filter_['field'])
+            raise APIError("Invalid value for the field '%s'" %
+                           filter_['field'])
         if isinstance(filter_['value'], list) and filter_['op'].upper() not in ['IN', 'NOT IN']:
-            raise APIError("Invalid value for the field '%s'" % filter_['field'])
+            raise APIError("Invalid value for the field '%s'" %
+                           filter_['field'])
         if filter_['op'].upper() not in ['=', '==', '!=', '>', '<', '>=', '<=', 'IN', 'LIKE', 'NOT IN', 'NOT LIKE']:
-            raise APIError("Invalid operator for the field '%s'" % filter_['field'])
+            raise APIError("Invalid operator for the field '%s'" %
+                           filter_['field'])
         if 'case_sensitive' in filter_ and not isinstance(filter_['case_sensitive'], bool):
             raise APIError("case_sensitive must be a boolean")
 
@@ -210,7 +231,8 @@ def get_rows(db, table, filters=None, filterop='AND', order_by=None, order_dir=N
     remove_words = ['_dc']
     conditions = []
     for filter_ in filters:
-        case_sensitive = False if 'case_sensitive' not in filter_ else filter_['case_sensitive']
+        case_sensitive = False if 'case_sensitive' not in filter_ else filter_[
+            'case_sensitive']
         if filter_['op'] == 'LIKE' and case_sensitive == False:
             filter_['field'] = '''UPPER({})'''.format(filter_['field'])
             filter_['value'] = filter_['value'].upper()
@@ -221,7 +243,8 @@ def get_rows(db, table, filters=None, filterop='AND', order_by=None, order_dir=N
         if is_deleted:
             continue
         marker = value_to_marker(filter_['value'])
-        conditions.append('''{} {} {}'''.format(filter_['field'], filter_['op'], marker))
+        conditions.append('''{} {} {}'''.format(
+            filter_['field'], filter_['op'], marker))
         if isinstance(filter_['value'], list):
             bindings += filter_['value']
         else:
@@ -245,7 +268,8 @@ def get_rows(db, table, filters=None, filterop='AND', order_by=None, order_dir=N
 
     # status
     if isinstance(status, list) and len(status) > 0:
-        more_conditions.append('''status IN {}'''.format(value_to_marker(status)))
+        more_conditions.append(
+            '''status IN {}'''.format(value_to_marker(status)))
         bindings += status
     elif isinstance(status, str) and status != '':
         more_conditions.append('''status == ?''')
@@ -253,18 +277,21 @@ def get_rows(db, table, filters=None, filterop='AND', order_by=None, order_dir=N
 
     # legacy filters
     if not show_expired and table == 'orders':
-        #Ignore BTC orders one block early.
+        # Ignore BTC orders one block early.
         expire_index = util.CURRENT_BLOCK_INDEX + 1
-        more_conditions.append('''((give_asset == ? AND expire_index > ?) OR give_asset != ?)''')
+        more_conditions.append(
+            '''((give_asset == ? AND expire_index > ?) OR give_asset != ?)''')
         bindings += [config.BTC, expire_index, config.BTC]
 
     if (len(conditions) + len(more_conditions)) > 0:
         statement += ''' WHERE'''
         all_conditions = []
         if len(conditions) > 0:
-            all_conditions.append('''({})'''.format(''' {} '''.format(filterop.upper()).join(conditions)))
+            all_conditions.append('''({})'''.format(
+                ''' {} '''.format(filterop.upper()).join(conditions)))
         if len(more_conditions) > 0:
-            all_conditions.append('''({})'''.format(''' AND '''.join(more_conditions)))
+            all_conditions.append('''({})'''.format(
+                ''' AND '''.join(more_conditions)))
         statement += ''' {}'''.format(''' AND '''.join(all_conditions))
 
     # ORDER BY
@@ -278,7 +305,6 @@ def get_rows(db, table, filters=None, filterop='AND', order_by=None, order_dir=N
         if offset:
             statement += ''' OFFSET {}'''.format(offset)
 
-
     query_result = db_query(db, statement, tuple(bindings))
 
     if table == 'sends':
@@ -286,6 +312,7 @@ def get_rows(db, table, filters=None, filterop='AND', order_by=None, order_dir=N
         return adjust_get_sends_results(query_result)
 
     return query_result
+
 
 def adjust_get_sends_memo_filters(filters):
     """Convert memo to a byte string.  If memo_hex is supplied, attempt to decode it and use that instead."""
@@ -300,6 +327,7 @@ def adjust_get_sends_memo_filters(filters):
             except ValueError as e:
                 raise APIError("Invalid memo_hex value")
 
+
 def adjust_get_sends_results(query_result):
     """Format the memo_hex field.  Try and decode the memo from a utf-8 uncoded string. Invalid utf-8 strings return an empty memo."""
     filtered_results = []
@@ -309,7 +337,8 @@ def adjust_get_sends_results(query_result):
                 send_row['memo_hex'] = None
                 send_row['memo'] = None
             else:
-                send_row['memo_hex'] = binascii.hexlify(send_row['memo']).decode('utf8')
+                send_row['memo_hex'] = binascii.hexlify(
+                    send_row['memo']).decode('utf8')
                 send_row['memo'] = send_row['memo'].decode('utf-8')
         except UnicodeDecodeError:
             send_row['memo'] = ''
@@ -355,9 +384,11 @@ def compose_transaction(db, name, params,
         if not script.is_fully_valid(binascii.unhexlify(pubkey)):
             raise script.AddressError('invalid public key: {}'.format(pubkey))
 
-    compose_method = sys.modules['counterpartylib.lib.messages.{}'.format(name)].compose
+    compose_method = sys.modules['counterpartylib.lib.messages.{}'.format(
+        name)].compose
     compose_params = inspect.getargspec(compose_method)[0]
-    missing_params = [p for p in compose_params if p not in params and p != 'db']
+    missing_params = [
+        p for p in compose_params if p not in params and p != 'db']
     for param in missing_params:
         params[param] = None
 
@@ -369,20 +400,21 @@ def compose_transaction(db, name, params,
 
     tx_info = compose_method(db, **params)
     return transaction.construct(db, tx_info, encoding=encoding,
-                                        fee_per_kb=fee_per_kb,
-                                        # estimate_fee_per_kb=estimate_fee_per_kb, estimate_fee_per_kb_conf_target=estimate_fee_per_kb_conf_target,
-                                        estimate_fee_per_kb=estimate_fee_per_kb, estimate_fee_per_kb_nblocks=estimate_fee_per_kb_nblocks,
-                                        regular_dust_size=regular_dust_size,
-                                        multisig_dust_size=multisig_dust_size,
-                                        op_return_value=op_return_value,
-                                        provided_pubkeys=provided_pubkeys,
-                                        allow_unconfirmed_inputs=allow_unconfirmed_inputs,
-                                        exact_fee=fee,
-                                        fee_provided=fee_provided,
-                                        unspent_tx_hash=unspent_tx_hash, custom_inputs=custom_inputs,
-                                        dust_return_pubkey=dust_return_pubkey,
-                                        disable_utxo_locks=disable_utxo_locks,
-                                        extended_tx_info=extended_tx_info)
+                                 fee_per_kb=fee_per_kb,
+                                 # estimate_fee_per_kb=estimate_fee_per_kb, estimate_fee_per_kb_conf_target=estimate_fee_per_kb_conf_target,
+                                 estimate_fee_per_kb=estimate_fee_per_kb, estimate_fee_per_kb_nblocks=estimate_fee_per_kb_nblocks,
+                                 regular_dust_size=regular_dust_size,
+                                 multisig_dust_size=multisig_dust_size,
+                                 op_return_value=op_return_value,
+                                 provided_pubkeys=provided_pubkeys,
+                                 allow_unconfirmed_inputs=allow_unconfirmed_inputs,
+                                 exact_fee=fee,
+                                 fee_provided=fee_provided,
+                                 unspent_tx_hash=unspent_tx_hash, custom_inputs=custom_inputs,
+                                 dust_return_pubkey=dust_return_pubkey,
+                                 disable_utxo_locks=disable_utxo_locks,
+                                 extended_tx_info=extended_tx_info)
+
 
 def conditional_decorator(decorator, condition):
     """Checks the condition and if True applies specified decorator."""
@@ -391,6 +423,7 @@ def conditional_decorator(decorator, condition):
             return f
         return decorator(f)
     return gen_decorator
+
 
 def init_api_access_log(app):
     """Initialize API logger."""
@@ -403,12 +436,15 @@ def init_api_access_log(app):
 
     # Log to file, if configured...
     if config.API_LOG:
-        handler = logging_handlers.RotatingFileHandler(config.API_LOG, 'a', API_MAX_LOG_SIZE, API_MAX_LOG_COUNT)
+        handler = logging_handlers.RotatingFileHandler(
+            config.API_LOG, 'a', API_MAX_LOG_SIZE, API_MAX_LOG_COUNT)
         for l in loggers:
             l.addHandler(handler)
 
+
 class APIStatusPoller(threading.Thread):
     """Perform regular checks on the state of the backend and the database."""
+
     def __init__(self):
         self.last_database_check = 0
         threading.Thread.__init__(self)
@@ -426,7 +462,8 @@ class APIStatusPoller(threading.Thread):
             try:
                 # Check that backend is running, communicable, and caught up with the blockchain.
                 # Check that the database has caught up with bitcoind.
-                if time.time() - self.last_database_check > 10 * 60: # Ten minutes since last check.
+                # Ten minutes since last check.
+                if time.time() - self.last_database_check > 10 * 60:
                     if not config.FORCE:
                         code = 11
                         logger.debug('Checking backend state.')
@@ -439,7 +476,8 @@ class APIStatusPoller(threading.Thread):
                 exception_name = e.__class__.__name__
                 exception_text = str(e)
                 logger.debug("API Status Poller: %s", exception_text)
-                jsonrpc_response = jsonrpc.exceptions.JSONRPCServerError(message=exception_name, data=exception_text)
+                jsonrpc_response = jsonrpc.exceptions.JSONRPCServerError(
+                    message=exception_name, data=exception_text)
                 current_api_status_code = code
                 current_api_status_response_json = jsonrpc_response.json.encode()
             else:
@@ -447,8 +485,10 @@ class APIStatusPoller(threading.Thread):
                 current_api_status_response_json = None
             time.sleep(config.BACKEND_POLL_INTERVAL)
 
+
 class APIServer(threading.Thread):
     """Handle JSON-RPC API calls."""
+
     def __init__(self, db=None):
         self.db = db
         self.is_ready = False
@@ -461,7 +501,8 @@ class APIServer(threading.Thread):
 
     def run(self):
         logger.info('Starting API Server.')
-        self.db = self.db or database.get_connection(read_only=True, integrity_check=False)
+        self.db = self.db or database.get_connection(
+            read_only=True, integrity_check=False)
         app = flask.Flask(__name__)
         CORS(app)
         auth = HTTPBasicAuth()
@@ -473,14 +514,14 @@ class APIServer(threading.Thread):
             return None
 
         ######################
-        #READ API
+        # READ API
 
         # Generate dynamically get_{table} methods
         def generate_get_method(table):
             def get_method(**kwargs):
                 try:
                     return get_rows(self.db, table=table, **kwargs)
-                except TypeError as e:          #TODO: generalise for all API methods
+                except TypeError as e:  # TODO: generalise for all API methods
                     raise APIError(str(e))
             return get_method
 
@@ -495,9 +536,8 @@ class APIServer(threading.Thread):
                 bindings = []
             return db_query(self.db, query, tuple(bindings))
 
-
         ######################
-        #WRITE/ACTION API
+        # WRITE/ACTION API
 
         # Generate dynamically create_{transaction} methods
         def generate_create_method(tx):
@@ -517,13 +557,17 @@ class APIServer(threading.Thread):
 
             def create_method(**kwargs):
                 try:
-                    transaction_args, common_args, private_key_wif = split_params(**kwargs)
+                    transaction_args, common_args, private_key_wif = split_params(
+                        **kwargs)
                     return compose_transaction(self.db, name=tx, params=transaction_args, **common_args)
                 except (TypeError, script.AddressError, exceptions.ComposeError, exceptions.TransactionError, exceptions.BalanceError) as error:
                     # TypeError happens when unexpected keyword arguments are passed in
-                    error_msg = "Error composing {} transaction via API: {}".format(tx, str(error))
+                    error_msg = "Error composing {} transaction via API: {}".format(
+                        tx, str(error))
                     logging.warning(error_msg)
-                    raise JSONRPCDispatchException(code=JSON_RPC_ERROR_API_COMPOSE, message=error_msg)
+                    import traceback; logging.warning(traceback.format_exc())
+                    raise JSONRPCDispatchException(
+                        code=JSON_RPC_ERROR_API_COMPOSE, message=error_msg)
 
             return create_method
 
@@ -538,7 +582,8 @@ class APIServer(threading.Thread):
                 raise APIError("block_index must be an integer.")
 
             cursor = self.db.cursor()
-            cursor.execute('select * from messages where block_index = ? order by message_index asc', (block_index,))
+            cursor.execute(
+                'select * from messages where block_index = ? order by message_index asc', (block_index,))
             messages = cursor.fetchall()
             cursor.close()
             return messages
@@ -550,14 +595,15 @@ class APIServer(threading.Thread):
             @param message_index: A single index, or a list of one or more message indexes to retrieve.
             """
             if not isinstance(message_indexes, list):
-                message_indexes = [message_indexes,]
-            for idx in message_indexes:  #make sure the data is clean
+                message_indexes = [message_indexes, ]
+            for idx in message_indexes:  # make sure the data is clean
                 if not isinstance(idx, int):
-                    raise APIError("All items in message_indexes are not integers")
+                    raise APIError(
+                        "All items in message_indexes are not integers")
 
             cursor = self.db.cursor()
             cursor.execute('SELECT * FROM messages WHERE message_index IN (%s) ORDER BY message_index ASC'
-                % (','.join([str(x) for x in message_indexes]),))
+                           % (','.join([str(x) for x in message_indexes]),))
             messages = cursor.fetchall()
             cursor.close()
             return messages
@@ -565,7 +611,7 @@ class APIServer(threading.Thread):
         @dispatcher.add_method
         def get_supply(asset):
             if asset == config.BTC:
-                return  backend.get_btc_supply(normalize=False)
+                return backend.get_btc_supply(normalize=False)
             elif asset == config.XCP:
                 return util.xcp_supply(self.db)
             else:
@@ -581,7 +627,8 @@ class APIServer(threading.Thread):
         def get_asset_info(assets):
             logger.warning("Deprecated method: `get_asset_info`")
             if not isinstance(assets, list):
-                raise APIError("assets must be a list of asset names, even if it just contains one entry")
+                raise APIError(
+                    "assets must be a list of asset names, even if it just contains one entry")
             assetsInfo = []
             for asset in assets:
                 asset = util.resolve_subasset_longname(self.db, asset)
@@ -607,15 +654,17 @@ class APIServer(threading.Thread):
 
                 # User‐created asset.
                 cursor = self.db.cursor()
-                issuances = list(cursor.execute('''SELECT * FROM issuances WHERE (status = ? AND asset = ?) ORDER BY block_index ASC''', ('valid', asset)))
+                issuances = list(cursor.execute(
+                    '''SELECT * FROM issuances WHERE (status = ? AND asset = ?) ORDER BY block_index ASC''', ('valid', asset)))
                 cursor.close()
                 if not issuances:
-                    continue #asset not found, most likely
+                    continue  # asset not found, most likely
                 else:
                     last_issuance = issuances[-1]
                 locked = False
                 for e in issuances:
-                    if e['locked']: locked = True
+                    if e['locked']:
+                        locked = True
                 assetsInfo.append({
                     'asset': asset,
                     'asset_longname': last_issuance['asset_longname'],
@@ -631,7 +680,8 @@ class APIServer(threading.Thread):
         def get_block_info(block_index):
             assert isinstance(block_index, int)
             cursor = self.db.cursor()
-            cursor.execute('''SELECT * FROM blocks WHERE block_index = ?''', (block_index,))
+            cursor.execute(
+                '''SELECT * FROM blocks WHERE block_index = ?''', (block_index,))
             blocks = list(cursor)
             if len(blocks) == 1:
                 block = blocks[0]
@@ -663,11 +713,11 @@ class APIServer(threading.Thread):
 
             # The blocks table gets rolled back from undolog, so min_message_index doesn't matter for this query
             cursor.execute('SELECT * FROM blocks WHERE block_index IN (%s) ORDER BY block_index ASC'
-                % (block_indexes_str,))
+                           % (block_indexes_str,))
             blocks = cursor.fetchall()
 
             cursor.execute('SELECT * FROM messages WHERE block_index IN (%s) ORDER BY message_index ASC'
-                % (block_indexes_str,))
+                           % (block_indexes_str,))
             messages = collections.deque(cursor.fetchall())
 
             # Discard any messages less than min_message_index
@@ -680,7 +730,7 @@ class APIServer(threading.Thread):
                 block['_messages'] = []
                 while len(messages) and messages[0]['block_index'] == block['block_index']:
                     block['_messages'].append(messages.popleft())
-            #NOTE: if len(messages), then we're only returning the messages for the first set of blocks before the reorg
+            # NOTE: if len(messages), then we're only returning the messages for the first set of blocks before the reorg
 
             cursor.close()
             return blocks
@@ -698,7 +748,8 @@ class APIServer(threading.Thread):
 
             try:
                 cursor = self.db.cursor()
-                blocks = list(cursor.execute('''SELECT * FROM blocks WHERE block_index = ?''', (util.CURRENT_BLOCK_INDEX, )))
+                blocks = list(cursor.execute(
+                    '''SELECT * FROM blocks WHERE block_index = ?''', (util.CURRENT_BLOCK_INDEX, )))
                 assert len(blocks) == 1
                 last_block = blocks[0]
                 cursor.close()
@@ -740,9 +791,9 @@ class APIServer(threading.Thread):
             counts = {}
             cursor = self.db.cursor()
             for element in ['transactions', 'blocks', 'debits', 'credits', 'balances', 'sends', 'orders',
-                'order_matches', 'btcpays', 'issuances', 'broadcasts', 'bets', 'bet_matches', 'dividends',
-                'burns', 'cancels', 'order_expirations', 'bet_expirations', 'order_match_expirations',
-                'bet_match_expirations', 'messages', 'destructions']:
+                            'order_matches', 'btcpays', 'issuances', 'broadcasts', 'bets', 'bet_matches', 'dividends',
+                            'burns', 'cancels', 'order_expirations', 'bet_expirations', 'order_match_expirations',
+                            'bet_match_expirations', 'messages', 'destructions']:
                 cursor.execute("SELECT COUNT(*) AS count FROM %s" % element)
                 count_list = cursor.fetchall()
                 assert len(count_list) == 1
@@ -756,9 +807,11 @@ class APIServer(threading.Thread):
             if longnames:
                 names = []
                 for row in cursor.execute("SELECT asset, asset_longname FROM issuances WHERE status = 'valid' GROUP BY asset ORDER BY asset ASC"):
-                    names.append({'asset': row['asset'], 'asset_longname': row['asset_longname']})
+                    names.append(
+                        {'asset': row['asset'], 'asset_longname': row['asset_longname']})
             else:
-                names = [row['asset'] for row in cursor.execute("SELECT DISTINCT asset FROM issuances WHERE status = 'valid' ORDER BY asset ASC")]
+                names = [row['asset'] for row in cursor.execute(
+                    "SELECT DISTINCT asset FROM issuances WHERE status = 'valid' ORDER BY asset ASC")]
             cursor.close()
             return names
 
@@ -800,8 +853,8 @@ class APIServer(threading.Thread):
                 if 'data' in transaction:
                     del transaction['data']
                 TRANSACTION_TABLES = ('bets', 'broadcasts', 'btcpays', 'burns',
-                    'cancels', 'destructions', 'dividends', 'issuances',
-                    'orders', 'rps', 'rpsresolves', 'sends')
+                                      'cancels', 'destructions', 'dividends', 'issuances',
+                                      'orders', 'rps', 'rpsresolves', 'sends')
                 for table in TRANSACTION_TABLES:
                     result = _exec_sql(cursor, table, tx_hash)
                     if 'tx_hash' in result:
@@ -843,7 +896,8 @@ class APIServer(threading.Thread):
         @dispatcher.add_method
         def get_tx_info(tx_hex, block_index=None):
             # block_index mandatory for transactions before block 335000
-            source, destination, btc_amount, fee, data = blocks.get_tx_info(tx_hex, block_index=block_index)
+            source, destination, btc_amount, fee, data = blocks.get_tx_info(
+                tx_hex, block_index=block_index)
             return source, destination, btc_amount, fee, util.hexlify(data) if data else ''
 
         @dispatcher.add_method
@@ -858,7 +912,8 @@ class APIServer(threading.Thread):
                 unpack_method = enhanced_send.unpack
             else:
                 raise APIError('unsupported message type')
-            unpacked = unpack_method(self.db, message, util.CURRENT_BLOCK_INDEX)
+            unpacked = unpack_method(
+                self.db, message, util.CURRENT_BLOCK_INDEX)
             return message_type_id, unpacked
 
         @dispatcher.add_method
@@ -892,6 +947,10 @@ class APIServer(threading.Thread):
             cursor.close()
             return values
 
+        @dispatcher.add_method
+        def get_levyasset_issuer(asset_name=None):
+            return levy.get_levyasset_issuer(self.db, asset_name)
+
         @app.route('/healthcheck', methods=['GET'])
         def handle_health_check():
             msg, code = 'OK', 200
@@ -901,6 +960,7 @@ class APIServer(threading.Thread):
                 msg, code = 'NG', 503
                 logging.warning("Health check is NG. {}".format(str(error)))
             return flask.Response(msg, code, mimetype='text/plain')
+
         @app.route('/', defaults={'args_path': ''}, methods=['GET', 'POST', 'OPTIONS'])
         @app.route('/<path:args_path>',  methods=['GET', 'POST', 'OPTIONS'])
         # Only require authentication if RPC_PASSWORD is set.
@@ -949,7 +1009,8 @@ class APIServer(threading.Thread):
                 assert 'id' in request_data and request_data['jsonrpc'] == "2.0" and request_data['method']
                 # params may be omitted
             except:
-                obj_error = jsonrpc.exceptions.JSONRPCInvalidRequest(data="Invalid JSON-RPC 2.0 request format")
+                obj_error = jsonrpc.exceptions.JSONRPCInvalidRequest(
+                    data="Invalid JSON-RPC 2.0 request format")
                 return flask.Response(obj_error.json.encode(), 400, mimetype='application/json')
 
             # Only arguments passed as a `dict` are supported.
@@ -964,8 +1025,10 @@ class APIServer(threading.Thread):
 
             # Answer request normally.
             # NOTE: `UnboundLocalError: local variable 'output' referenced before assignment` means the method doesn’t return anything.
-            jsonrpc_response = jsonrpc.JSONRPCResponseManager.handle(request_json, dispatcher)
-            response = flask.Response(jsonrpc_response.json.encode(), 200, mimetype='application/json')
+            jsonrpc_response = jsonrpc.JSONRPCResponseManager.handle(
+                request_json, dispatcher)
+            response = flask.Response(
+                jsonrpc_response.json.encode(), 200, mimetype='application/json')
             _set_cors_headers(response)
             return response
 
@@ -1027,7 +1090,8 @@ class APIServer(threading.Thread):
 
                 # Compose the transaction.
                 try:
-                    query_data = compose_transaction(self.db, name=query_type, params=transaction_args, **common_args)
+                    query_data = compose_transaction(
+                        self.db, name=query_type, params=transaction_args, **common_args)
                 except (script.AddressError, exceptions.ComposeError, exceptions.TransactionError, exceptions.BalanceError) as error:
                     error_msg = logging.warning("{} -- error composing {} transaction via API: {}".format(
                         str(error.__class__.__name__), query_type, str(error)))
@@ -1037,11 +1101,13 @@ class APIServer(threading.Thread):
                 query_args = dict([item for item in extra_args])
                 operator = query_args.pop('op', 'AND')
                 # Put the data into specific dictionary format.
-                data_filter = [{'field': key, 'op': '==', 'value': value} for (key, value) in query_args.items()]
+                data_filter = [{'field': key, 'op': '==', 'value': value}
+                               for (key, value) in query_args.items()]
 
                 # Run the query.
                 try:
-                    query_data = get_rows(self.db, table=query_type, filters=data_filter, filterop=operator)
+                    query_data = get_rows(
+                        self.db, table=query_type, filters=data_filter, filterop=operator)
                 except APIError as error:
                     return flask.Response(str(error), 400, mimetype='application/json')
 
@@ -1053,7 +1119,8 @@ class APIServer(threading.Thread):
             elif file_format == 'application/xml':
                 # Add document root for XML. Note when xmltodict encounters a list, it produces separate tags for every item.
                 # Hence we end up with multiple query_type roots. To combat this we put it in a separate item dict.
-                response_data = serialize_to_xml({query_type: {'item': query_data}})
+                response_data = serialize_to_xml(
+                    {query_type: {'item': query_data}})
             else:
                 error = 'Invalid file format: "%s".' % file_format
                 return flask.Response(error, 400, mimetype='application/json')

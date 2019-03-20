@@ -235,6 +235,8 @@ def resolve_subasset_longname(db, asset_name):
 #   throws exceptions for assset or subasset names with invalid syntax
 #   returns (None, None) if the asset is not a subasset name
 def parse_subasset_from_asset_name(asset):
+    if not asset or '.' not in asset:
+        return (None, None)
     subasset_parent = None
     subasset_child = None
     subasset_longname = None
@@ -746,9 +748,9 @@ def unhexlify(hex_string):
 ### Protocol Changes ###
 def enabled(change_name, block_index=None):
     """Return True if protocol change is enabled."""
-    if config.REGTEST:
-        return True # All changes are always enabled on REGTEST
-        
+    # if config.REGTEST:
+    #     return True # All changes are always enabled on REGTEST
+
     if config.TESTNET:
         index_name = 'testnet_block_index'
     else:
