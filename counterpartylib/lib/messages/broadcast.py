@@ -98,11 +98,7 @@ def validate (db, source, timestamp, value, fee_fraction_int, text, block_index)
         if last_broadcast['locked']:
             problems.append('locked feed')
         elif timestamp <= last_broadcast['timestamp']:
-            problems.append('feed timestamps not monotonically increasing')
-
-    if not (block_index >= 317500 or config.TESTNET or config.REGTEST):  # Protocol change.
-        if len(text) > 52:
-            problems.append('text too long')
+            problems.append('feed timestamps not monotonically increasing. timestamp = {} < last broadcast = {}'.format(timestamp, last_broadcast['timestamp']))
 
     if util.enabled('options_require_memo') and text and text.lower().startswith('options'):
         try:

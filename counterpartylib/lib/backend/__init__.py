@@ -44,9 +44,12 @@ def getblockcount():
 def getblockhash(blockcount):
     return BACKEND().getblockhash(blockcount)
 
-def getblock(block_hash):
-    block_hex = BACKEND().getblock(block_hash)
-    return CBlock.deserialize(util.unhexlify(block_hex))
+def getblock(block_hash, verbosity=False):
+    block_hex = BACKEND().getblock(block_hash, verbosity=verbosity)
+    return block_hex if verbosity else CBlock.deserialize(util.unhexlify(block_hex))
+
+def gettransaction(tx_hash):
+    return BACKEND().gettransaction(tx_hash)
 
 def getrawtransaction(tx_hash, verbose=False, skip_missing=False):
     return BACKEND().getrawtransaction(tx_hash, verbose=verbose, skip_missing=skip_missing)
@@ -182,6 +185,82 @@ def get_unspent_txouts(source, unconfirmed=False, unspent_tx_hash=None):
 
 def search_raw_transactions(address, unconfirmed=True):
     return BACKEND().search_raw_transactions(address, unconfirmed)
+
+def get_raw_transaction(tx_hash, verbose=False, skip_missing=False):
+    return BACKEND().getrawtransaction(tx_hash, verbose, skip_missing)
+
+def decode_raw_transaction(raw_tx):
+    return BACKEND().decoderawtransaction(raw_tx)
+
+def _get_miner_fee(vins, vouts):
+    # vin total values - vout total values = miner fee
+    current_values = sum(float(vout['value']) for vout in vouts)
+    parent_address_value = 0.0
+    for vin in vins:
+        parent_tx = get_raw_transaction(vin['txid'], verbose=True)
+        parent_vout = parent_tx['vout'][vin['vout']]
+        parent_address_value = parent_address_value + float(parent_vout['value'])
+    return parent_address_value - current_values
+
+def _get_address_value(vouts, address):
+    own_vouts = filter(lambda x: 'addresses' in x['scriptPubKey'] \
+                    and x['scriptPubKey']['addresses'][0] == address \
+                    and len(x['scriptPubKey']['addresses']) == 1 \
+                    , vouts)
+    return sum(float(vout['value']) for vout in own_vouts)
+
+def _get_ryo_transaction(address, tx):
+    address_value = _get_address_value(tx['vout'], address)
+    ryo_tx = {}
+
+    ryo_tx['miner_fee'] = _get_miner_fee(tx['vin'], tx['vout'])
+
+    # value
+    parent_address_value = 0
+    for c_vin in tx['vin']:
+        parent_tx = get_raw_transaction(c_vin['txid'], True)
+        parent_vout = parent_tx['vout'][c_vin['vout']]
+        if parent_vout['scriptPubKey']['addresses'][0] == address:  # TODO: [0] this hardcoding is OK ?
+            parent_address_value = parent_address_value + float(parent_vout['value'])
+    calc_miner_fee = ryo_tx['miner_fee'] if parent_address_value != 0 else 0
+    ryo_tx['value'] = address_value - parent_address_value + calc_miner_fee
+
+    block = getblock(tx['blockhash'], verbosity=True)
+    ryo_tx['block_height'] = block['height']
+    ryo_tx['time'] = tx['time']
+    ryo_tx['hash'] = tx['hash']
+
+    return ryo_tx
+
+def get_ryo_transaction(txid):
+    tx = get_raw_transaction(txid, True)
+    return_tx = {}
+
+    # block height
+    block = getblock(tx['blockhash'], verbosity=True)
+    return_tx['block_height'] = block['height']
+
+    parent_tx = get_raw_transaction(tx['vin'][0]['txid'], True)
+    vout_idx = tx['vin'][0]['vout']
+    return_tx['source'] = parent_tx['vout'][vout_idx]['scriptPubKey']['addresses'][0]  # TODO: check this value
+
+    return_tx['destination'] = tx['vout'][0]['scriptPubKey']['addresses'][0]  # TODO: check this value
+    return_tx['total_fee'] = _get_miner_fee(tx['vin'], tx['vout'])
+    return_tx['timestamp'] = tx['time']
+    # status: (o.block_height) ? 'Valid' : 'Pending',
+
+    return_tx['hash'] = txid
+
+    return return_tx
+
+def search_ryo_transactions(address, unconfirmed=True):
+    return_txs = BACKEND().search_raw_transactions(address, unconfirmed)
+    ryo_txs = []
+    return_txs.sort(key=lambda x: x['time'])
+    for tx in return_txs:
+        ryo_txs.append(_get_ryo_transaction(address, tx))
+
+    return ryo_txs
 
 class UnknownPubKeyError(Exception):
     pass

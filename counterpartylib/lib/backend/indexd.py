@@ -150,8 +150,8 @@ def getblockcount():
 def getblockhash(blockcount):
     return rpc('getblockhash', [blockcount])
 
-def getblock(block_hash):
-    return rpc('getblock', [block_hash, False])
+def getblock(block_hash, verbosity=False):
+    return rpc('getblock', [block_hash, verbosity])
 
 def getrawtransaction(tx_hash, verbose=False, skip_missing=False):
     return getrawtransaction_batch([tx_hash], verbose=verbose, skip_missing=skip_missing)[tx_hash]

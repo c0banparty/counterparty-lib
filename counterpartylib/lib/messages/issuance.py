@@ -181,7 +181,7 @@ def validate (db, source, destination, asset, quantity, divisible, callable_, ca
         cursor.close()
         fee = 88 * config.UNIT
         if fee and (not balances or balances[0]['quantity'] < fee):
-            problems.append('insufficient funds')
+            problems.append('insufficient funds XCB')
 
     if not (block_index >= 0 or config.TESTNET or config.REGTEST):  # Protocol change.
         if len(description) > 42:
