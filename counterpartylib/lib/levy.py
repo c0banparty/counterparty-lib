@@ -40,6 +40,7 @@ def create_levy_info(db, source, subasset_parent, subasset_issuance):
         # send levy token
         levy_asset = subasset_issuance['levy_asset']
         levy_number = subasset_issuance['levy_number']
+        levy_label = subasset_issuance['levy_label']
         status = 'valid'
         issuer_address = get_asset_issuer(db, subasset_parent)
         if not issuer_address:
@@ -49,9 +50,10 @@ def create_levy_info(db, source, subasset_parent, subasset_issuance):
         result = {
             'source': source,
             'destination': issuer_address,
-            'levy_type': 1,  # TODO: implement rate(2)
+            'levy_type': issuance_message.LEVY_FIX,  # TODO: implement rate(2)
             'levy_asset': levy_asset,
             'levy_number': levy_number,
+            'levy_label': levy_label,
         }
         logger.info("Levied: asset = [%s], quantity or rate = [%s]" % (levy_asset, levy_number / config.UNIT))
 
@@ -91,7 +93,7 @@ def check(db, tx, asset, memo_bytes):
     if subasset_issuance and subasset_issuance['levy_type'] == 1:
         levy_info = create_levy_info(db, tx['source'], subasset_parent, subasset_issuance)
         if levy_info:
-            sql = 'insert into levies values(:tx_hash, :source, :destination, :levy_type, :levy_asset, :levy_number)'
+            sql = 'insert into levies values(:tx_hash, :source, :destination, :levy_type, :levy_asset, :levy_number, :lavy_label)'
             cursor.execute(sql, levy_info)
             logger.info('Add levy data. tx_hash = {}'.format(tx['tx_hash']))
 

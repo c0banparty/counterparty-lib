@@ -455,7 +455,8 @@ def initialise(db):
                       destination TEXT,
                       levy_type INTEGER,
                       levy_asset TEXT,
-                      levy_number INTEGER)
+                      levy_number INTEGER,
+                      levy_label TEXT)
                   ''')
 
     cursor.close()

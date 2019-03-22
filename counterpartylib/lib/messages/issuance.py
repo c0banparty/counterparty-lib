@@ -17,14 +17,17 @@ D = decimal.Decimal
 
 FORMAT_1 = '>QQ?'
 LENGTH_1 = 8 + 8 + 1
+
 FORMAT_2 = '>QQ??If'
 LENGTH_2 = 8 + 8 + 1 + 1 + 4 + 4
 SUBASSET_FORMAT = '>QQ?B'
 SUBASSET_FORMAT_LENGTH = 8 + 8 + 1 + 1
-FORMAT_3 = '>QQ??IfBQQ'
-LENGTH_3 = 8 + 8 + 1 + 1 + 4 + 4 + 1 + 8 + 8
-SUBASSET_FORMAT_2 = '>QQ?BQQB'  # asset_id, quantity, divisible, levy_type, levy_asset_id, levy_number
-SUBASSET_FORMAT_LENGTH_2 = 8 + 8 + 1 + 1 + 8 + 8 + 1
+
+FORMAT_LEVY = '>QQ??IfBQQ'
+LENGTH_LEVY = 8 + 8 + 1 + 1 + 4 + 4 + 1 + 8 + 8
+SUBASSET_FORMAT_LEVY = '>QQ?BQQQB'  # asset_id, quantity, divisible, levy_type, levy_asset_id, levy_number, levy_label_id
+SUBASSET_FORMAT_LENGTH_LEVY = 8 + 8 + 1 + 1 + 8 + 8 + 8 + 1
+
 ID = 20
 SUBASSET_ID = 21
 ID_LEVY = 22
@@ -52,6 +55,7 @@ def initialise(db):
                       levy_type INTEGER,
                       levy_asset TEXT,
                       levy_number INTEGER,
+                      levy_label TEXT,
                       description TEXT,
                       fee_paid INTEGER,
                       locked BOOL,
@@ -87,7 +91,7 @@ def initialise(db):
 
 def validate(db, source, destination, asset, quantity, divisible, callable_,
              call_date, call_price, description, subasset_parent, subasset_longname,
-             block_index, levy_type, levy_asset, levy_number):
+             block_index, levy_type, levy_asset, levy_number, levy_label):
     problems = []
     fee = 0
 
@@ -106,6 +110,8 @@ def validate(db, source, destination, asset, quantity, divisible, callable_,
         levy_type = 0
     if levy_number is None:
         levy_number = 0
+    if levy_label is None:
+        levy_label = config.BTC
 
     if isinstance(call_price, int):
         call_price = float(call_price)
@@ -144,7 +150,7 @@ def validate(db, source, destination, asset, quantity, divisible, callable_,
             problems.append('levy asset [{}] is not exist'.format(levy_asset))
 
     if len(problems) > 0:
-        return call_date, call_price, problems, fee, description, divisible, None, None, levy_type, levy_asset, levy_number
+        return call_date, call_price, problems, fee, description, divisible, None, None, levy_type, levy_asset, levy_number, levy_label
 
     # Callable, or not.
     if not callable_:
@@ -249,10 +255,10 @@ def validate(db, source, destination, asset, quantity, divisible, callable_,
     if util.enabled('integer_overflow_fix', block_index=block_index) and (fee > config.MAX_INT or quantity > config.MAX_INT):
         problems.append('integer overflow')
 
-    return call_date, call_price, problems, fee, description, divisible, reissuance, reissued_asset_longname, levy_type, levy_asset, levy_number
+    return call_date, call_price, problems, fee, description, divisible, reissuance, reissued_asset_longname, levy_type, levy_asset, levy_number, levy_label
 
 
-def compose(db, source, transfer_destination, asset, quantity, divisible, description, locked, levy_type, levy_asset, levy_number):
+def compose(db, source, transfer_destination, asset, quantity, divisible, description, locked, levy_type, levy_asset, levy_number, levy_label):
 
     # Callability is deprecated, so for re‐issuances set relevant parameters
     # to old values; for first issuances, make uncallable.
@@ -293,10 +299,10 @@ def compose(db, source, transfer_destination, asset, quantity, divisible, descri
     reissuance = None
     reissued_asset_longname = None
 
-    call_date, call_price, problems, fee, description, divisible, reissuance, reissued_asset_longname, levy_type, levy_asset, levy_number = validate(
+    call_date, call_price, problems, fee, description, divisible, reissuance, reissued_asset_longname, levy_type, levy_asset, levy_number, levy_label = validate(
         db, source, transfer_destination, asset, quantity, divisible, callable_,
         call_date, call_price, description, subasset_parent, subasset_longname,
-        util.CURRENT_BLOCK_INDEX, levy_type, levy_asset, levy_number)
+        util.CURRENT_BLOCK_INDEX, levy_type, levy_asset, levy_number, levy_label)
     if problems:
         raise exceptions.ComposeError(problems)
 
@@ -308,15 +314,15 @@ def compose(db, source, transfer_destination, asset, quantity, divisible, descri
     id = ID
     subasset_id = SUBASSET_ID
     if levy_type:
-        format = FORMAT_3
-        subasset_format = SUBASSET_FORMAT_2
+        format = FORMAT_LEVY
+        subasset_format = SUBASSET_FORMAT_LEVY
         id = ID_LEVY
         subasset_id = SUBASSET_ID_LEVY
 
     params = [asset_id, quantity, 1 if divisible else 0]
 
     if subasset_longname is None or reissuance:
-        # Type 20 standard issuance FORMAT_2 >QQ??If, FORMAT_3 >QQ??IfBQH
+        # Type 20 standard issuance FORMAT_2 >QQ??If, FORMAT_LEVY >QQ??IfBQH
         #   used for standard issuances and all reissuances
         data = message_type.pack(id)
         if len(description) <= 42:
@@ -329,7 +335,9 @@ def compose(db, source, transfer_destination, asset, quantity, divisible, descri
         if levy_type:
             levy_asset_id = util.generate_asset_id(
                 levy_asset, util.CURRENT_BLOCK_INDEX)
-            params = params + [levy_type, levy_asset_id, levy_number]
+            levy_label_id = util.generate_asset_id(
+                levy_label, util.CURRENT_BLOCK_INDEX)
+            params = params + [levy_type, levy_asset_id, levy_number, levy_label_id]
         params.append(description.encode('utf-8'))
         data += struct.pack(*params)
     else:
@@ -347,7 +355,9 @@ def compose(db, source, transfer_destination, asset, quantity, divisible, descri
         if levy_type:
             levy_asset_id = util.generate_asset_id(
                 levy_asset, util.CURRENT_BLOCK_INDEX)
-            params = params + [levy_type, levy_asset_id, levy_number]
+            levy_label_id = util.generate_asset_id(
+                levy_label, util.CURRENT_BLOCK_INDEX)
+            params = params + [levy_type, levy_asset_id, levy_number, levy_label_id]
         params = params + [compacted_subasset_length,
                            compacted_subasset_longname, description.encode('utf-8')]
         data += struct.pack(*params)
@@ -373,7 +383,7 @@ def convert_namedtuple_to_object(data):
 
 def adjust_asset_data(db, tx, source_asset):
     Asset = namedtuple(
-        'Asset', 'call_date call_price problems fee description divisible reissuance reissued_asset_longname levy_type levy_asset levy_number')
+        'Asset', 'call_date call_price problems fee description divisible reissuance reissued_asset_longname levy_type levy_asset levy_number, levy_label')
     tmp_asset = Asset._make(validate(
         db, tx['source'],
         tx['destination'],
@@ -389,7 +399,9 @@ def adjust_asset_data(db, tx, source_asset):
         tx['block_index'],
         source_asset.levy_type,
         source_asset.levy_asset,
-        source_asset.levy_number))
+        source_asset.levy_number,
+        source_asset.levy_label
+        ))
     tmp_asset = convert_namedtuple_to_object(tmp_asset)
     for attribute in dir(tmp_asset):
         if attribute[0] != '_':
@@ -403,6 +415,7 @@ def contrunct_asset_data(tx, message, message_type_id):
         levy_type = None
         levy_asset_id = None
         levy_number = None
+        levy_label_id = None
 
         # set format version info
         if message_type_id in (ID, SUBASSET_ID):
@@ -415,14 +428,14 @@ def contrunct_asset_data(tx, message, message_type_id):
             SubAsset = namedtuple(
                 'SubAsset', 'asset_id quantity divisible compacted_subasset_length')
         else:
-            format = FORMAT_3
-            length = LENGTH_3
-            subasset_format = SUBASSET_FORMAT_2
-            subasset_format_length = SUBASSET_FORMAT_LENGTH_2
+            format = FORMAT_LEVY
+            length = LENGTH_LEVY
+            subasset_format = SUBASSET_FORMAT_LEVY
+            subasset_format_length = SUBASSET_FORMAT_LENGTH_LEVY
             Asset = namedtuple(
-                'Asset', 'asset_id quantity divisible callable_ call_date call_price levy_type levy_asset_id levy_number description')
+                'Asset', 'asset_id quantity divisible callable_ call_date call_price levy_type levy_asset_id levy_number levy_label_id description')
             SubAsset = namedtuple(
-                'SubAsset', 'asset_id quantity divisible levy_type levy_asset_id levy_number compacted_subasset_length')
+                'SubAsset', 'asset_id quantity divisible levy_type levy_asset_id levy_number levy_label_id compacted_subasset_length')
 
         # Sub Asset
         if message_type_id in (SUBASSET_ID, SUBASSET_ID_LEVY) :
@@ -473,6 +486,12 @@ def contrunct_asset_data(tx, message, message_type_id):
                         result_asset.levy_asset_id, tx['block_index'])
                 else:
                     result_asset.levy_asset = config.BTC
+            if hasattr(result_asset, 'levy_label_id'):
+                if result_asset.levy_label_id:
+                    result_asset.levy_label = util.generate_asset_name(
+                        result_asset.levy_label_id, tx['block_index'])
+                else:
+                    result_asset.levy_label = ''
             result_asset.status = 'valid'
         except exceptions.AssetIDError:
             result_asset.asset = None
@@ -498,6 +517,7 @@ def contrunct_asset_data(tx, message, message_type_id):
         'levy_type',
         'levy_asset',
         'levy_number',
+        'levy_label',
         )
     for attr in null_set_attrs:
         if not hasattr(result_asset, attr):
@@ -598,6 +618,7 @@ def parse(db, tx, message, message_type_id):
         'levy_type': asset_data.levy_type,
         'levy_asset': asset_data.levy_asset,
         'levy_number': asset_data.levy_number,
+        'levy_label': asset_data.levy_label,
         'description': asset_data.description,
         'fee_paid': asset_data.fee,
         'locked': asset_data.lock,
@@ -608,8 +629,8 @@ def parse(db, tx, message, message_type_id):
         sql = """insert into issuances values(
         :tx_index, :tx_hash, :block_index, :asset, :quantity, :divisible,
         :source, :issuer, :transfer, :callable, :call_date, :call_price,
-        :levy_type, :levy_asset, :levy_number, :description, :fee_paid,
-        :locked, :status, :asset_longname)"""
+        :levy_type, :levy_asset, :levy_number, :levy_label, :description,
+        :fee_paid, :locked, :status, :asset_longname)"""
         issuance_parse_cursor.execute(sql, bindings)
     else:
         logger.warn("Not storing [issuance] tx [%s]: %s" %
