@@ -192,6 +192,8 @@ def validate(db, source, destination, asset, quantity, divisible, callable_,
             problems.append('locked asset and non‐zero quantity')
         if last_issuance['levy_type'] and int(last_issuance['levy_type']) != levy_type:
             problems.append('cannot change levy type')
+        if last_issuance['levy_label'] and last_issuance['levy_label'] != levy_label:
+            problems.append('cannot change levy label')
     else:
         reissuance = False
         if description.lower() == 'lock':
