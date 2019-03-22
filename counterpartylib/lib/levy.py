@@ -53,7 +53,7 @@ def create_levy_info(db, source, subasset_parent, subasset_issuance):
             'levy_asset': levy_asset,
             'levy_number': levy_number,
         }
-        logger.info("Levied: asset = [%s], quantity or rate = [%s]" % (levy_asset, levy_number))
+        logger.info("Levied: asset = [%s], quantity or rate = [%s]" % (levy_asset, levy_number / config.UNIT))
 
     cursor.close()
     return result

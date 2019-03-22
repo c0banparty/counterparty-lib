@@ -21,10 +21,10 @@ FORMAT_2 = '>QQ??If'
 LENGTH_2 = 8 + 8 + 1 + 1 + 4 + 4
 SUBASSET_FORMAT = '>QQ?B'
 SUBASSET_FORMAT_LENGTH = 8 + 8 + 1 + 1
-FORMAT_3 = '>QQ??IfBQH'
-LENGTH_3 = 8 + 8 + 1 + 1 + 4 + 4 + 1 + 8 + 2
-SUBASSET_FORMAT_2 = '>QQ?BQHB'
-SUBASSET_FORMAT_LENGTH_2 = 8 + 8 + 1 + 8 + 2 + 1 + 1
+FORMAT_3 = '>QQ??IfBQQ'
+LENGTH_3 = 8 + 8 + 1 + 1 + 4 + 4 + 1 + 8 + 8
+SUBASSET_FORMAT_2 = '>QQ?BQQB'  # asset_id, quantity, divisible, levy_type, levy_asset_id, levy_number
+SUBASSET_FORMAT_LENGTH_2 = 8 + 8 + 1 + 1 + 8 + 8 + 1
 ID = 20
 SUBASSET_ID = 21
 ID_LEVY = 22
@@ -106,8 +106,6 @@ def validate(db, source, destination, asset, quantity, divisible, callable_,
         levy_type = 0
     if levy_number is None:
         levy_number = 0
-    else:
-        levy_number = int(levy_number)
 
     if isinstance(call_price, int):
         call_price = float(call_price)
@@ -335,7 +333,7 @@ def compose(db, source, transfer_destination, asset, quantity, divisible, descri
         params.append(description.encode('utf-8'))
         data += struct.pack(*params)
     else:
-        # Type 21 subasset issuance SUBASSET_FORMAT >QQ?B, SUBASSET_FORMAT2 >QQ?BQHB
+        # Type 21 subasset issuance SUBASSET_FORMAT >QQ?B, SUBASSET_FORMAT2 >QQ?BQQB
         #   Used only for initial subasset issuance
         # compacts a subasset name to save space
         compacted_subasset_longname = util.compact_subasset_longname(

@@ -152,7 +152,7 @@ def compose(db, source, destination, asset, quantity, memo, memo_is_hex):
         # import pdb; pdb.set_trace()
         levy_info = levy.create_levy_info(db, source, subasset_parent, subasset_issuance)
         if levy_info:
-            distinations.append((levy_info['destination'], int(levy_info['levy_number']) * config.UNIT))
+            distinations.append((levy_info['destination'], int(levy_info['levy_number'])))
 
     cursor.close()
     # return an empty array as the second argument because we don't need to send BTC dust to the recipient
