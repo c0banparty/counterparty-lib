@@ -276,25 +276,22 @@ def compose(db, source, transfer_destination, asset, quantity, divisible, descri
         call_price = 0.0
 
     # check subasset
-    subasset_parent = None
-    subasset_longname = None
-    if util.enabled('subassets'):  # Protocol change.
-        subasset_parent, subasset_longname = util.parse_subasset_from_asset_name(
-            asset)
-        if subasset_longname is not None:
-            # try to find an existing subasset
-            sa_cursor = db.cursor()
-            sa_cursor.execute('''SELECT * FROM assets \
-                              WHERE (asset_longname = ?)''', (subasset_longname,))
-            assets = sa_cursor.fetchall()
-            sa_cursor.close()
-            if len(assets) > 0:
-                # this is a reissuance
-                asset = assets[0]['asset_name']
-            else:
-                # this is a new issuance
-                #   generate a random numeric asset id which will map to this subasset
-                asset = util.generate_random_asset()
+    subasset_parent, subasset_longname = util.parse_subasset_from_asset_name(
+        last_issuance['asset_longname'])
+    if subasset_longname is not None:
+        # try to find an existing subasset
+        sa_cursor = db.cursor()
+        sa_cursor.execute('''SELECT * FROM assets \
+                          WHERE (asset_longname = ?)''', (subasset_longname,))
+        assets = sa_cursor.fetchall()
+        sa_cursor.close()
+        if len(assets) > 0:
+            # this is a reissuance
+            asset = assets[0]['asset_name']
+        else:
+            # this is a new issuance
+            #   generate a random numeric asset id which will map to this subasset
+            asset = util.generate_random_asset()
 
     problems = None
     fee = 0
@@ -323,9 +320,9 @@ def compose(db, source, transfer_destination, asset, quantity, divisible, descri
 
     params = [asset_id, quantity, 1 if divisible else 0]
 
-    if subasset_longname is None or reissuance:
+    if subasset_longname is None:
         # Type 20 standard issuance FORMAT_2 >QQ??If, FORMAT_LEVY >QQ??IfBQH
-        #   used for standard issuances and all reissuances
+        #   used for standard issuances
         data = message_type.pack(id)
         if len(description) <= 42:
             curr_format = format + '{}p'.format(len(description) + 1)
@@ -344,7 +341,7 @@ def compose(db, source, transfer_destination, asset, quantity, divisible, descri
         data += struct.pack(*params)
     else:
         # Type 21 subasset issuance SUBASSET_FORMAT >QQ?B, SUBASSET_FORMAT2 >QQ?BQQB
-        #   Used only for initial subasset issuance
+        #   Used only for subasset issuance
         # compacts a subasset name to save space
         compacted_subasset_longname = util.compact_subasset_longname(
             subasset_longname)
