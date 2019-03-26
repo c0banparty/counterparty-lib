@@ -274,10 +274,9 @@ def compose(db, source, transfer_destination, asset, quantity, divisible, descri
         callable_ = False
         call_date = 0
         call_price = 0.0
-
-    # check subasset
+ 
     subasset_parent, subasset_longname = util.parse_subasset_from_asset_name(
-        last_issuance['asset_longname'])
+        asset)
     if subasset_longname is not None:
         # try to find an existing subasset
         sa_cursor = db.cursor()
