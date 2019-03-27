@@ -8,6 +8,7 @@ logger = logging.getLogger(__name__)
 
 from counterpartylib.lib import (
     backend, config, util, exceptions, transaction, util, message_type, address, levy)
+from counterpartylib.lib.messages import issuance as issuance_message
 
 FORMAT = '>QQ21s'
 LENGTH = 8 + 8 + 21  # asset_id, quantity, short_address_bytes
@@ -147,12 +148,11 @@ def compose(db, source, destination, asset, quantity, memo, memo_is_hex):
     # levy
     distinations = []
     subasset_parent, subasset_issuance = levy.get_subasset_issuance(db, asset)
-    # print("{} {}".format(subasset_parent, subasset_issuance))
-    if subasset_issuance and subasset_issuance['levy_type'] == 1:
-        # import pdb; pdb.set_trace()
+    if subasset_issuance and subasset_issuance['levy_type'] == issuance_message.LEVY_FIX:
         levy_info = levy.create_levy_info(db, source, subasset_parent, subasset_issuance)
         if levy_info:
-            distinations.append((levy_info['destination'], int(levy_info['levy_number'])))
+            levy_quantity = int(levy_info['levy_number']) * int(quantity)
+            distinations.append((levy_info['destination'], levy_quantity))
 
     cursor.close()
     # return an empty array as the second argument because we don't need to send BTC dust to the recipient

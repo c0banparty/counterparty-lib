@@ -27,7 +27,7 @@ def get_levyasset_issuer(db, asset_name):
 def create_levy_info(db, source, subasset_parent, subasset_issuance):
     cursor = db.cursor()
     # TODO: implement other type. ex) levy rate = 2
-    if subasset_issuance['levy_type'] != 1:
+    if subasset_issuance['levy_type'] != issuance_message.LEVY_FIX:
         return None
 
     cursor.execute('''SELECT * FROM balances \
