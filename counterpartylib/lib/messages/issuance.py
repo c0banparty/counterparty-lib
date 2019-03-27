@@ -25,16 +25,16 @@ SUBASSET_FORMAT_LENGTH = 8 + 8 + 1 + 1
 
 FORMAT_LEVY = '>QQ??IfBQQ'
 LENGTH_LEVY = 8 + 8 + 1 + 1 + 4 + 4 + 1 + 8 + 8
-SUBASSET_FORMAT_LEVY = '>QQ?BQQQB'  # asset_id, quantity, divisible, levy_type, levy_asset_id, levy_number, levy_label_id
-SUBASSET_FORMAT_LENGTH_LEVY = 8 + 8 + 1 + 1 + 8 + 8 + 8 + 1
+SUBASSET_FORMAT_LEVY = '>QQ?BQQBB'  # asset_id, quantity, divisible, levy_type, levy_asset_id, levy_number, levy_label_length, subasset_length
+SUBASSET_FORMAT_LENGTH_LEVY = 8 + 8 + 1 + 1 + 8 + 8 + 1 + 1
 
 ID = 20
 SUBASSET_ID = 21
 ID_LEVY = 22
 SUBASSET_ID_LEVY = 23
 # NOTE: Pascal strings are used for storing descriptions for backwards‐compatibility.
-LEBY_FIX = 1
-LEBY_RATE = 2
+LEVY_FIX = 1
+LEVY_RATE = 2
 
 
 def initialise(db):
@@ -331,33 +331,55 @@ def compose(db, source, transfer_destination, asset, quantity, divisible, descri
         params = params + [1 if callable_ else 0,
                            call_date or 0, call_price or 0.0]
         if levy_type:
-            levy_asset_id = util.generate_asset_id(
-                levy_asset, util.CURRENT_BLOCK_INDEX)
-            levy_label_id = util.generate_asset_id(
-                levy_label, util.CURRENT_BLOCK_INDEX)
-            params = params + [levy_type, levy_asset_id, levy_number, levy_label_id]
+            raise exceptions.ComposeError("Base token can't have levy type")
+            #     levy_asset_id = util.generate_asset_id(
+            #         levy_asset, util.CURRENT_BLOCK_INDEX)
+            #     levy_label_id = util.generate_asset_id(
+            #         levy_label, util.CURRENT_BLOCK_INDEX)
+            #     params = params + [levy_type, levy_asset_id, levy_number, levy_label_id]
         params.append(description.encode('utf-8'))
         data += struct.pack(*params)
     else:
         # Type 21 subasset issuance SUBASSET_FORMAT >QQ?B, SUBASSET_FORMAT2 >QQ?BQQB
         #   Used only for subasset issuance
+        if levy_type:
+            levy_asset_id = util.generate_asset_id(
+                levy_asset, util.CURRENT_BLOCK_INDEX)
+            params = params + [levy_type, levy_asset_id, levy_number]
+
+            compacted_label_id = util.compact_subasset_longname(levy_label)
+            compacted_label_length = len(compacted_label_id)
+
         # compacts a subasset name to save space
         compacted_subasset_longname = util.compact_subasset_longname(
             subasset_longname)
         compacted_subasset_length = len(compacted_subasset_longname)
-        data = message_type.pack(subasset_id)
-        curr_format = subasset_format + \
-            '{}s'.format(compacted_subasset_length) + \
-            '{}s'.format(len(description))
-        params.insert(0, curr_format)
+
         if levy_type:
-            levy_asset_id = util.generate_asset_id(
-                levy_asset, util.CURRENT_BLOCK_INDEX)
-            levy_label_id = util.generate_asset_id(
-                levy_label, util.CURRENT_BLOCK_INDEX)
-            params = params + [levy_type, levy_asset_id, levy_number, levy_label_id]
-        params = params + [compacted_subasset_length,
-                           compacted_subasset_longname, description.encode('utf-8')]
+            params = params + [
+                compacted_label_length,
+                compacted_subasset_length,
+                compacted_label_id,
+                compacted_subasset_longname,
+            ]
+            curr_format = subasset_format + \
+                '{}s'.format(compacted_label_length) + \
+                '{}s'.format(compacted_subasset_length)
+        else:
+            params = params + [
+                compacted_subasset_length,
+                compacted_subasset_longname,
+            ]
+            curr_format = subasset_format + \
+                '{}s'.format(compacted_subasset_length)
+
+        # description
+        curr_format = curr_format + '{}s'.format(len(description))
+        params = params + [description.encode('utf-8')]
+
+        params.insert(0, curr_format)
+
+        data = message_type.pack(subasset_id)
         data += struct.pack(*params)
 
     if transfer_destination:
@@ -433,7 +455,7 @@ def contrunct_asset_data(tx, message, message_type_id):
             Asset = namedtuple(
                 'Asset', 'asset_id quantity divisible callable_ call_date call_price levy_type levy_asset_id levy_number levy_label_id description')
             SubAsset = namedtuple(
-                'SubAsset', 'asset_id quantity divisible levy_type levy_asset_id levy_number levy_label_id compacted_subasset_length')
+                'SubAsset', 'asset_id quantity divisible levy_type levy_asset_id levy_number compacted_levy_label_length compacted_subasset_length')
 
         # Sub Asset
         if message_type_id in (SUBASSET_ID, SUBASSET_ID_LEVY) :
@@ -445,18 +467,36 @@ def contrunct_asset_data(tx, message, message_type_id):
             # parse a subasset original issuance message
             result_asset = convert_namedtuple_to_object(SubAsset._make(
                 struct.unpack(subasset_format, message[0:subasset_format_length])))
+
+            # description length
+            diff_length = result_asset.compacted_subasset_length
+            if message_type_id == SUBASSET_ID_LEVY:
+                diff_length = diff_length + result_asset.compacted_levy_label_length
             description_length = len(
-                message) - subasset_format_length - result_asset.compacted_subasset_length
+                message) - subasset_format_length - diff_length
             if description_length < 0:
-                logger.warn("invalid subasset length: [issuance] tx [%s]: %s" % (
-                    tx['tx_hash'], result_asset.compacted_subasset_length))
+                logger.warn("invalid subasset length: [issuance] tx [%s]: %s, %s" % (
+                    tx['tx_hash'], result_asset.compacted_levy_label_length, result_asset.compacted_subasset_length))
                 raise exceptions.UnpackError
-            messages_format = '>{}s{}s'.format(
-                result_asset.compacted_subasset_length, description_length)
-            compacted_subasset_longname, description = struct.unpack(
-                messages_format, message[subasset_format_length:])
+
+            if message_type_id == SUBASSET_ID_LEVY:
+                messages_format = '>{}s{}s{}s'.format(
+                    result_asset.compacted_levy_label_length,
+                    result_asset.compacted_subasset_length,
+                    description_length)
+                compacted_levy_label, compacted_subasset_longname, description = struct.unpack(
+                    messages_format, message[subasset_format_length:])
+                result_asset.levy_label = util.expand_subasset_longname(
+                    compacted_levy_label)
+            else:
+                messages_format = '>{}s{}s'.format(
+                    result_asset.compacted_subasset_length, description_length)
+                compacted_subasset_longname, description = struct.unpack(
+                    messages_format, message[subasset_format_length:])
+
             result_asset.subasset_longname = util.expand_subasset_longname(
                 compacted_subasset_longname)
+
             result_asset.callable_, result_asset.call_date, result_asset.call_price = False, 0, 0.0
             try:
                 result_asset.description = description.decode('utf-8')
@@ -484,12 +524,6 @@ def contrunct_asset_data(tx, message, message_type_id):
                         result_asset.levy_asset_id, tx['block_index'])
                 else:
                     result_asset.levy_asset = config.BTC
-            if hasattr(result_asset, 'levy_label_id'):
-                if result_asset.levy_label_id:
-                    result_asset.levy_label = util.generate_asset_name(
-                        result_asset.levy_label_id, tx['block_index'])
-                else:
-                    result_asset.levy_label = ''
             result_asset.status = 'valid'
         except exceptions.AssetIDError:
             result_asset.asset = None
