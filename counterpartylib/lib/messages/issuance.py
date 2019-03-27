@@ -134,9 +134,9 @@ def validate(db, source, destination, asset, quantity, divisible, callable_,
         problems.append('negative call price')
     if call_date < 0:
         problems.append('negative call date')
-    if LEBY_RATE < levy_type < 0:
+    if LEVY_RATE < levy_type < 0:
         problems.append(
-            'levy type must be in the range [0 - {}]'.format(LEBY_RATE))
+            'levy type must be in the range [0 - {}]'.format(LEVY_RATE))
     if levy_number < 0:
         problems.append('negative levy number')
 
