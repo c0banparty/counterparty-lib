@@ -627,6 +627,9 @@ def parse(db, tx, message, message_type_id):
             sql = 'insert into assets values(:asset_id, :asset_name, :block_index, :asset_longname)'
             issuance_parse_cursor.execute(sql, bindings)
 
+        if asset_data.levy_type > 0:
+            asset_data.lock = True
+
     if asset_data.status == 'valid' and asset_data.reissuance:
         # when reissuing, add the asset_longname to the issuances table for API lookups
         asset_data.asset_longname = asset_data.reissued_asset_longname
