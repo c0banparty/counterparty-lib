@@ -612,7 +612,7 @@ def parse(db, tx, message, message_type_id):
     if asset_data.status == 'valid':
         if asset_data.description and asset_data.description.lower() == 'lock':
             asset_data.lock = True
-            issuance = get_latest_issuance(asset_data.asset)
+            issuance = get_latest_issuance(db, asset_data.asset)
             # Use last description. (Assume previous issuance exists because tx is valid.)
             asset_data.description = issuance['description']
 
