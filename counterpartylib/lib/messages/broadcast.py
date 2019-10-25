@@ -145,7 +145,11 @@ def parse (db, tx, message):
             textlen = VarIntSerializer.deserialize(rawtext)
             text = rawtext[-textlen:]
 
-            assert len(text) == textlen
+            if textlen == 0:
+                text = b''
+            else:
+                text = rawtext[-textlen:]
+
         else:
             if len(message) - LENGTH <= 52:
                 curr_format = FORMAT + '{}p'.format(len(message) - LENGTH)
