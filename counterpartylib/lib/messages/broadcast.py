@@ -143,8 +143,6 @@ def parse (db, tx, message):
         if util.enabled('broadcast_pack_text'):
             timestamp, value, fee_fraction_int, rawtext = struct.unpack(FORMAT + '{}s'.format(len(message) - LENGTH), message)
             textlen = VarIntSerializer.deserialize(rawtext)
-            text = rawtext[-textlen:]
-
             if textlen == 0:
                 text = b''
             else:
